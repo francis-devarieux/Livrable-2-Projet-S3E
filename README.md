@@ -39,34 +39,34 @@ Le programme est découpé en 3 blocs principaux :
 ## Organisation des fichiers (proposée)
 
 
-/src
-│
-├── main.c
-│
-├── mode_manager.c
-├── mode_manager.h
-│
-├── buttons.c
-├── buttons.h
-│
-├── led.c
-├── led.h
-│
-├── sensors.c
-├── sensors.h
-│
-├── gps.c
-├── gps.h
-│
-├── sd_manager.c
-├── sd_manager.h
-│
-├── serial_console.c
-├── serial_console.h
-│
-├── config_params.c
-├── config_params.h
-
+/src  
+│   
+├── main.c   
+│   
+├── mode_manager.c   
+├── mode_manager.h   
+│   
+├── buttons.c   
+├── buttons.h   
+│   
+├── led.c   
+├── led.h  
+│    
+├── sensors.c  
+├── sensors.h  
+│   
+├── gps.c   
+├── gps.h   
+│   
+├── sd_manager.c   
+├── sd_manager.h   
+│   
+├── serial_console.c   
+├── serial_console.h  
+│   
+├── config_params.c   
+├── config_params.h     
+  
 > Remarque : si certains éléments sont regroupés (ex: GPS dans sensors), la structure reste identique au niveau logique.
 
 ---
