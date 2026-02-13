@@ -1,3 +1,4 @@
+//Definition des structures 
 typedef struct {
     char date[11];      // AAAA/MM/JJ
     char heure[9];      // HH:MM:SS
