@@ -1,1 +1,9 @@
+#include <EEPROM.h>   // Utilisation mémoire EEPROM
+#include <ChainableLED.h>   // Librairie LED
+#include <Adafruit_BME280.h>    // Librairie capteur BME280
+#include <SoftwareSerial.h>   // Librairie pour le GPS
+#include <Wire.h>
+#include <RTClib.h>   // Librairie pour la clock
+#include <SPI.h>
+#include "SdFat.h"   // Librairie pour le lecteur SD
 
