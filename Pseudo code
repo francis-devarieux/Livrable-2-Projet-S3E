@@ -1,0 +1,162 @@
+1. Initialisation et configs de base
+
+PROCÉDURE Initialiser_Systeme()
+    Initialiser les bus de communication (UART, I2C pour RTC, SPI pour SD)
+ 
+    // Chargement des paramètres de fonctionnement depuis l'EEPROM
+    Charger LOG_INTERVALL (Défaut: 10 min)
+    Charger FILE_MAX_SIZE (Défaut: 4096 octets)
+ 
+    // Chargement des seuils et flags d'activation des capteurs
+    Charger Flags_Activation (LUMIN, TEMP_AIR, HYGR, PRESSURE)
+    Charger Seuils_Luminosité (LUMIN_LOW, LUMIN_HIGH)
+    Charger Seuils_Température (MIN_TEMP_AIR, MAX_TEMP_AIR)
+    Charger Seuils_Hygrométrie (HYGR_MINT, HYGR_MAXT)
+    Charger Seuils_Pression (PRESSURE_MIN, PRESSURE_MAX)
+
+    // Vérification de l'état de l'horloge RTC
+    SI (Erreur_Acces_RTC) ALORS
+        Signaler_Erreur(RTC_ACCES) // LED Rouge/Bleue 1Hz
+    FIN SI
+
+    // Détermination du mode de démarrage
+    SI (Bouton_Rouge est appuyé au boot) ALORS
+        Mode_Actuel = CONFIGURATION
+    SINON
+        Mode_Actuel = STANDARD
+        Allumer_LED(VERTE)
+    FIN SI
+FIN PROCÉDURE
+
+2.Boucle principale de fonctionnement + gestion des modes
+
+TANT QUE (Vrai) :
+    Temps_Actuel = Obtenir_Temps_RTC()
+
+    // --- LOGIQUE DE TRANSITION DES MODES (Appuis 5s) ---
+    SI (Bouton_Vert_5s ET Mode_Actuel == STANDARD) ALORS
+        Mode_Precedent = STANDARD
+        Mode_Actuel = ECONOMIQUE
+        Allumer_LED(BLEUE)
+        Intervalle_Travail = LOG_INTERVALL * 2
+ 
+    SINON SI (Bouton_Rouge_5s ET Mode_Actuel != MAINTENANCE) ALORS
+        Mode_Precedent = Mode_Actuel
+        Mode_Actuel = MAINTENANCE
+        Allumer_LED(ORANGE)
+        Appeler Securiser_Carte_SD() // Ferme les fichiers
+        Arreter_Sauvegarde() // Suspend les écritures
+ 
+    SINON SI (Bouton_Rouge_5s ET Mode_Actuel == MAINTENANCE) ALORS
+        Mode_Actuel = Mode_Precedent
+        Restaurer_LED_Mode(Mode_Actuel) // Vert ou Bleu
+ 
+    SINON SI (Bouton_Rouge_5s ET Mode_Actuel == ECONOMIQUE) ALORS
+        Mode_Actuel = STANDARD
+        Allumer_LED(VERTE)
+        Intervalle_Travail = LOG_INTERVALL
+    FIN SI
+
+    // --- EXÉCUTION DES TÂCHES SELON LE MODE ---
+    SELON (Mode_Actuel) :
+        CAS STANDARD :
+            SI (Temps_Actuel - Dernier_Log >= Intervalle_Travail) ALORS
+                Appeler Effectuer_Mesures(GPS_FORCE = VRAI)
+                Dernier_Log = Temps_Actuel
+            FIN SI
+ 
+        CAS ECONOMIQUE :
+            SI (Temps_Actuel - Dernier_Log >= Intervalle_Travail) ALORS
+                // GPS une mesure sur deux
+                Doit_Lire_GPS = (Compteur_Logs % 2 == 0)
+                Appeler Effectuer_Mesures(GPS_FORCE = Doit_Lire_GPS)
+                Compteur_Logs = Compteur_Logs + 1
+                Dernier_Log = Temps_Actuel
+            FIN SI
+
+        CAS MAINTENANCE :
+            // Diagnostic en direct sur UART
+            Donnees_Brutes = Lire_Tous_Capteurs()
+            Transmettre_UART(Donnees_Brutes)
+ 
+        CAS CONFIGURATION :
+            Appeler Mode_Configuration() // Gestion console UART
+    FIN SELON
+FIN TANT QUE
+
+3. Acquisition des données et leur validation ( paramètres sur le fichier )
+
+PROCÉDURE Effectuer_Mesures(GPS_FORCE)
+    Ligne_Log = Generer_Horodatage()
+
+    // --- CAPTEUR TEMPÉRATURE ---
+    SI (TEMP_AIR == 1) ALORS
+        Val = Lire_Physique_Temp()
+        SI (Erreur_Acces) ALORS
+            Signaler_Erreur(CAPTEUR_ACCES) // LED Rouge/Verte 1Hz
+            Ligne_Log += "NA"
+        SINON SI (Val < MIN_TEMP_AIR OU Val > MAX_TEMP_AIR) ALORS
+            Signaler_Erreur(CAPTEUR_VALEUR) // LED Rouge/Verte (Vert 2x long)
+            Ligne_Log += "INCOHERENT"
+        SINON
+            Ligne_Log += Val
+        FIN SI
+    FIN SI
+
+    // --- CAPTEUR HYGROMÉTRIE --- (Conditionné par la température)
+    SI (HYGR == 1) ALORS
+        SI (Temp_Actuelle < HYGR_MINT OU Temp_Actuelle > HYGR_MAXT) ALORS
+            Ligne_Log += "HORS_PLAGE_TEMP"
+        SINON
+            Ligne_Log += Lire_Physique_Hygr()
+        FIN SI
+    FIN SI
+
+    // --- GPS ---
+    SI (GPS_FORCE) ALORS
+        SI (Erreur_Acces_GPS) ALORS
+            Signaler_Erreur(GPS_ACCES) // LED Rouge/Jaune 1Hz
+        FIN SI
+    FIN SI
+
+    Appeler Sauvegarder_SD(Ligne_Log)
+FIN PROCÉDURE
+
+4.Sauvegarde et Archivage
+
+PROCÉDURE Sauvegarder_SD(Donnees)
+    // Vérification de la taille avant écriture
+    SI (Taille_Fichier_Actuel + Taille(Donnees) >= 4096) ALORS
+        Renommer "_0.LOG" en "Revision_Suivante.LOG"
+        Creer_Nouveau_Fichier("_0.LOG")
+        Taille_Fichier_Actuel = 0
+    FIN SI
+
+    // Tentative d'écriture et gestion d'erreur
+    SI (Erreur_Ecriture_SD) ALORS
+        Signaler_Erreur(SD_ACCES) // LED Rouge/Blanche (Blanc 2x long)
+    SINON SI (SD_Pleine) ALORS
+        Signaler_Erreur(SD_PLEINE) // LED Rouge/Blanche 1Hz
+    SINON
+        Ecrire_Donnees(Donnees)
+        Taille_Fichier_Actuel += Taille(Donnees)
+    FIN SI
+FIN PROCÉDURE
+
+5.Mode config
+
+PROCÉDURE Mode_Configuration()
+    Allumer_LED(JAUNE)
+    TANT QUE (Inactivité < 30 minutes) :
+        Commande = Lire_UART()
+ 
+        SELON (Commande) :
+            CAS "LUMIN=X" : MAJ_EEPROM_ET_RAM(LUMIN, X)
+            CAS "TEMP_AIR=X" : MAJ_EEPROM_ET_RAM(TEMP_AIR, X)
+            CAS "MIN_TEMP_AIR=X" : MAJ_EEPROM_ET_RAM(MIN_TEMP_AIR, X)
+            CAS "LOG_INTERVALL=X" : MAJ_EEPROM_ET_RAM(LOG_INTERVALL, X)
+            CAS "RESET" : Restaurer_Valeurs_Usine_EEPROM()
+        FIN SELON
+    FIN TANT QUE
+    Mode_Actuel = STANDARD
+FIN PROCÉDURE
